@@ -1,7 +1,8 @@
 SHELL := /bin/sh
-FW_DIR	:= /lib/firmware/rtl_bt/
-MDL_DIR	:= /lib/modules/$(shell uname -r)
+FW_DIR	:= $(TARGET_DIR)/lib/firmware/rtl_bt/
+MDL_DIR	:= $(TARGET_DIR)/lib/modules/$(KVER)
 DRV_DIR	:= $(MDL_DIR)/kernel/drivers/bluetooth
+EXTRA_CFLAGS += -DCONFIG_BT_RTL
 
 #Handle the compression option for modules in 3.18+
 ifneq ("","$(wildcard $(DRV_DIR)/*.ko.gz)")
@@ -11,24 +12,43 @@ ifneq ("","$(wildcard $(DRV_DIR)/*.ko.xz)")
 COMPRESS_XZ := y
 endif
 
+ifneq ($(TARGET_DIR),)
+DEPMOD_PREFIX = -b $(TARGET_DIR)
+else
+DEPMOD_PREFIX = 
+endif
+
+DEPMOD ?= depmod
+
 ifneq ($(KERNELRELEASE),)
 
-	obj-m := btusb.o btrtl.o btintel.o btbcm.o
+	obj-m := btusb.o btrtl.o 
+
+ifneq ($(CONFIG_BT_BCM),)
+	obj-m += btbcm.o
+endif
+
+ifneq ($(CONFIG_BT_INTEL),)
+  obj-m += btintel.o
+endif
+
 
 else
 	PWD := $(shell pwd)
-	KVER := $(shell uname -r)
-	KDIR := /lib/modules/$(KVER)/build
+	KVER ?= $(shell uname -r)
+	KSRC ?= /lib/modules/$(KVER)/build
 
-all:
-	$(MAKE) -C $(KDIR) M=$(PWD) modules
+all: 
+	$(MAKE) ARCH=$(ARCH) CROSS_COMPILE=$(CROSS_COMPILE) -C $(KSRC) M=$(PWD) modules
 
 clean:
 	rm -rf *.o *.mod.c *.mod.o *.ko *.symvers *.order *.a
 endif
 
 install:
+	echo "INSTALLING firmware..."
 	@mkdir -p $(FW_DIR)
+	@mkdir -p $(DRV_DIR)
 	@cp -f *_fw.bin $(FW_DIR)/.
 	@cp -f *.ko $(DRV_DIR)/.
 ifeq ($(COMPRESS_GZIP), y)
@@ -43,7 +63,7 @@ ifeq ($(COMPRESS_XZ), y)
 	@xz -f $(DRV_DIR)/btintel.ko
 	@xz -f $(DRV_DIR)/btrtl.ko
 endif
-	depmod -a $(MDL_DIR)
+	$(DEPMOD) $(DEPMOD_PREFIX) -a $(KVER)
 	@echo "installed revised btusb"
 
 uninstall:
